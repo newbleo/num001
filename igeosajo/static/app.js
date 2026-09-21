@@ -167,7 +167,9 @@
     const gifted = item.status === "gifted";
     const reserved = item.status === "reserved";
     const stateBadge = gifted
-      ? '<span class="badge state-gifted">선물 완료 🎁</span>'
+      ? (item.verified
+          ? '<span class="badge state-gifted">선물 완료 🎁</span>'
+          : '<span class="badge state-pending">확인 중 ⏳</span>')
       : reserved
       ? '<span class="badge state-reserved">준비 중…</span>'
       : "";
@@ -188,12 +190,54 @@
           <p class="gifted-by"><strong>${esc(item.gifter_label)}</strong>님이 선물해 주셨어요
             ${item.gifted_at ? `<span class="muted small">· ${esc(dateOf(item.gifted_at))}</span>` : ""}
             ${item.gifter_message ? `<br>“${esc(item.gifter_message)}”` : ""}</p>` : ""}
+        ${gifted && !item.verified ? `
+          <p class="note small">아직 확인 전이라 랭킹에는 올라가지 않았어요.</p>` : ""}
         <div class="item-actions">
           ${item.url ? `<a class="ghost-btn" href="${esc(item.url)}" target="_blank" rel="noopener noreferrer">상품 보기 ↗</a>` : ""}
           ${gifted ? "" : `<button class="primary-btn" data-gift="${item.id}">이거 사줄게요</button>`}
+          ${isOwner && gifted && !item.verified
+            ? `<button class="primary-btn" data-confirm="${item.id}">받았어요, 확인 ✅</button>` : ""}
           ${isOwner ? `<button class="danger-btn" data-delete="${item.id}">삭제</button>` : ""}
         </div>
       </li>`;
+  }
+
+  function rankingHtml(ranking) {
+    if (!ranking) return "";
+    const pending = ranking.pending_count
+      ? `<span class="muted small">확인 대기 ${ranking.pending_count}건</span>` : "";
+    if (!ranking.visible) {
+      return `<section class="ranking">
+          <h2>🎅 산타 랭킹</h2>
+          <p class="muted small">이 위시리스트는 랭킹을 공개하지 않았어요. ${pending}</p>
+        </section>`;
+    }
+    if (!ranking.ranks.length && !ranking.anonymous.count) {
+      return `<section class="ranking">
+          <h2>🎅 산타 랭킹</h2>
+          <p class="muted small">확인된 선물이 아직 없어요. ${pending}</p>
+        </section>`;
+    }
+    return `
+      <section class="ranking">
+        <h2>🎅 산타 랭킹</h2>
+        <p class="muted small">
+          결제가 확인된 선물만 집계해요 · 누적 ${esc(won(ranking.verified_total))} ${pending}</p>
+        <ol class="rank-list">
+          ${ranking.ranks.map((entry) => `
+            <li class="rank-row rank-${entry.rank <= 3 ? entry.rank : "n"}">
+              <span class="rank-no">${entry.rank}</span>
+              <span class="rank-tier" title="${esc(entry.tier.label)}">${entry.tier.emoji}</span>
+              <span class="rank-name">${esc(entry.label)}
+                <span class="muted small">${esc(entry.tier.label)}</span></span>
+              <span class="rank-total">${esc(won(entry.total))}
+                <span class="muted small">· ${entry.count}건</span></span>
+            </li>`).join("")}
+        </ol>
+        ${ranking.anonymous.count ? `
+          <p class="muted small">그리고 익명의 산타 ${ranking.anonymous.count}분이
+            ${esc(won(ranking.anonymous.total))}어치를 조용히 놓고 가셨어요. 🤫</p>` : ""}
+      </section>`;
   }
 
   function renderWishlist() {
@@ -233,6 +277,14 @@
           <p class="form-error" id="item-error" hidden></p>
           <div class="row"><button class="primary-btn" type="submit">추가하기</button></div>
         </form>
+        <label class="field">
+          <span>산타 랭킹 공개 범위</span>
+          <select id="ranking-visibility">
+            <option value="public">모두에게 공개</option>
+            <option value="owner">나만 보기</option>
+            <option value="off">랭킹 끄기</option>
+          </select>
+        </label>
       </section>` : ""}
 
       <div class="controls">
@@ -256,6 +308,8 @@
         ? `<ul class="items">${items.map((item) => itemHtml(item, isOwner)).join("")}</ul>`
         : `<p class="empty">${data.items.length ? "이 조건에 맞는 아이템이 없어요." : "아직 아이템이 없어요."}</p>`}
 
+      ${rankingHtml(data.ranking)}
+
       ${giftedCount ? `
       <section class="thanks-wall">
         <h2>감사의 벽 💌</h2>
@@ -267,6 +321,7 @@
     `;
 
     document.getElementById("sort-select").value = state.sort;
+    if (isOwner) document.getElementById("ranking-visibility").value = data.ranking_visibility;
     wireWishlistEvents(isOwner);
   }
 
@@ -323,6 +378,38 @@
         }
       });
 
+      document.getElementById("ranking-visibility").addEventListener("change", async (event) => {
+        try {
+          await callApi(`/api/wishlists/${state.slug}`, {
+            method: "PATCH",
+            slug: state.slug,
+            body: {
+              owner_name: state.data.owner_name,
+              intro: state.data.intro,
+              ranking_visibility: event.currentTarget.value,
+            },
+          });
+          await loadWishlist();
+        } catch (err) {
+          toast(err.message);
+        }
+      });
+
+      document.querySelectorAll("[data-confirm]").forEach((button) => {
+        button.addEventListener("click", async () => {
+          try {
+            await callApi(`/api/items/${button.dataset.confirm}/confirm`, {
+              method: "POST",
+              slug: state.slug,
+            });
+            toast("확인했어요! 산타 랭킹에 반영됩니다 🎅");
+            await loadWishlist();
+          } catch (err) {
+            toast(err.message);
+          }
+        });
+      });
+
       document.querySelectorAll("[data-delete]").forEach((button) => {
         button.addEventListener("click", async () => {
           if (!confirm("이 아이템을 지울까요?")) return;
@@ -345,9 +432,15 @@
   async function startGift(itemId) {
     const item = state.data.items.find((i) => i.id === itemId);
     if (!item) return;
+    let reserved;
     try {
-      const reserved = await callApi(`/api/items/${itemId}/reserve`, { method: "POST" });
-      state.pending = { itemId, reserveToken: reserved.reserve_token, title: item.title };
+      reserved = await callApi(`/api/items/${itemId}/reserve`, { method: "POST" });
+      state.pending = {
+        itemId,
+        reserveToken: reserved.reserve_token,
+        title: item.title,
+        tracked: reserved.tracked,
+      };
     } catch (err) {
       toast(err.message);
       await loadWishlist();
@@ -356,12 +449,16 @@
 
     document.getElementById("gift-modal-item").textContent = `${item.title} · ${won(item.price)}`;
     const link = document.getElementById("gift-modal-link");
-    if (item.url) {
-      link.href = item.url;
+    if (reserved.tracking_url) {
+      // 제휴 링크면 subId 가 붙어 있어 나중에 실제 결제와 맞춰볼 수 있다
+      link.href = reserved.tracking_url;
       link.hidden = false;
     } else {
       link.hidden = true;
     }
+    document.getElementById("gift-track-note").textContent = reserved.tracked
+      ? "이 링크로 결제하시면 결제 내역이 자동으로 확인돼 랭킹에 반영돼요."
+      : "이 쇼핑몰은 자동 확인이 안 돼요. 받는 분이 확인해주면 랭킹에 올라갑니다.";
     giftForm.reset();
     document.getElementById("gift-name-field").hidden = false;
     giftError.hidden = true;
@@ -417,7 +514,7 @@
       });
       modal.hidden = true;
       state.pending = null;
-      celebrate(result.owner_name, result.item);
+      celebrate(result);
       await loadWishlist();
     } catch (err) {
       giftError.textContent = err.message;
@@ -433,11 +530,19 @@
     celebration.hidden = true;
   });
 
-  function celebrate(ownerName, item) {
-    document.getElementById("celebration-title").textContent = "너무 감사합니다!!";
-    document.getElementById("celebration-body").textContent =
-      `${item.gifter_label}님이 "${item.title}"을(를) 선물했어요. ` +
-      `${ownerName}님의 위시리스트에 감사 인사가 남았습니다. 🎁`;
+  function celebrate(result) {
+    const item = result.item;
+    const verified = item.verified;
+    document.getElementById("celebration-title").textContent =
+      verified ? "너무 감사합니다!!" : "감사합니다!! 🎉";
+    document.getElementById("celebration-body").innerHTML =
+      `${esc(item.gifter_label)}님이 “${esc(item.title)}”을(를) 선물했어요.<br>` +
+      `${esc(result.owner_name)}님의 위시리스트에 감사 인사가 남았습니다. 🎁` +
+      (verified ? "" : `<br><span class="muted small">${esc(
+        result.tracked
+          ? "결제가 확인되면 산타 랭킹에 자동으로 올라가요."
+          : `${result.owner_name}님이 선물을 받고 확인해주면 산타 랭킹에 올라가요.`
+      )}</span>`);
     celebration.hidden = false;
     fireConfetti();
   }

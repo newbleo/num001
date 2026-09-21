@@ -7,7 +7,7 @@ import re
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 
-from . import api, db
+from . import api, db, tracking
 
 STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 MAX_BODY = 64 * 1024
@@ -17,12 +17,15 @@ ROUTES = [
     ("GET", r"^/api/wishlists/(?P<slug>[a-z0-9-]{3,32})$", "get_wishlist"),
     ("PATCH", r"^/api/wishlists/(?P<slug>[a-z0-9-]{3,32})$", "update_wishlist"),
     ("GET", r"^/api/wishlists/(?P<slug>[a-z0-9-]{3,32})/thanks$", "thanks_wall"),
+    ("GET", r"^/api/wishlists/(?P<slug>[a-z0-9-]{3,32})/ranking$", "ranking"),
     ("POST", r"^/api/wishlists/(?P<slug>[a-z0-9-]{3,32})/items$", "add_item"),
     ("PATCH", r"^/api/items/(?P<item_id>\d+)$", "update_item"),
     ("DELETE", r"^/api/items/(?P<item_id>\d+)$", "delete_item"),
     ("POST", r"^/api/items/(?P<item_id>\d+)/reserve$", "reserve_item"),
     ("POST", r"^/api/items/(?P<item_id>\d+)/cancel$", "cancel_reservation"),
     ("POST", r"^/api/items/(?P<item_id>\d+)/gift$", "gift_item"),
+    ("POST", r"^/api/items/(?P<item_id>\d+)/confirm$", "confirm_receipt"),
+    ("POST", r"^/api/webhooks/payment$", "payment_webhook"),
 ]
 COMPILED = [(method, re.compile(pattern), handler) for method, pattern, handler in ROUTES]
 
@@ -52,14 +55,19 @@ class Handler(BaseHTTPRequestHandler):
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         self._send(status, body, "application/json; charset=utf-8")
 
-    def _read_json(self):
+    def _read_raw(self):
         length = int(self.headers.get("Content-Length") or 0)
         if length > MAX_BODY:
             raise api.ApiError(413, "요청이 너무 커요.")
-        if length <= 0:
+        return self.rfile.read(length) if length > 0 else b""
+
+    def _read_json(self, raw=None):
+        if raw is None:
+            raw = self._read_raw()
+        if not raw:
             return {}
         try:
-            payload = json.loads(self.rfile.read(length).decode("utf-8"))
+            payload = json.loads(raw.decode("utf-8"))
         except (UnicodeDecodeError, json.JSONDecodeError):
             raise api.ApiError(400, "JSON 형식이 올바르지 않아요.")
         if not isinstance(payload, dict):
@@ -111,6 +119,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(200, api.update_wishlist(conn, slug, token, self._read_json()))
         if name == "thanks_wall":
             return self._json(200, api.thanks_wall(conn, slug))
+        if name == "ranking":
+            return self._json(200, api.ranking(conn, slug, token))
         if name == "add_item":
             return self._json(201, api.add_item(conn, slug, token, self._read_json()))
         if name == "update_item":
@@ -124,6 +134,13 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(200, api.cancel_reservation(conn, item_id, body.get("reserve_token")))
         if name == "gift_item":
             return self._json(200, api.gift_item(conn, item_id, self._read_json()))
+        if name == "confirm_receipt":
+            return self._json(200, api.confirm_receipt(conn, item_id, token))
+        if name == "payment_webhook":
+            raw = self._read_raw()
+            if not tracking.verify_signature(raw, self.headers.get("X-Signature")):
+                raise api.ApiError(401, "서명이 올바르지 않아요.")
+            return self._json(200, api.apply_payment_event(conn, self._read_json(raw)))
         raise api.ApiError(500, "알 수 없는 요청이에요.")
 
     # --- 정적 파일 --------------------------------------------------------

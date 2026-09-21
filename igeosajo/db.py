@@ -6,6 +6,13 @@ import time
 
 RESERVE_TTL_SECONDS = 30 * 60  # 예약(선물하는 중) 유지 시간
 
+# 선물의 검증 단계. 랭킹과 '공식 축하'는 VERIFIED 단계부터만 집계한다.
+CLAIMED = "claimed"                        # 사주는 사람이 눌러서 알려준 상태 (미검증)
+RECIPIENT_CONFIRMED = "recipient_confirmed"  # 위시리스트 주인이 "받았어요" 확인
+PAYMENT_VERIFIED = "payment_verified"      # 결제/제휴 전환 콜백으로 확인된 상태
+CANCELLED = "cancelled"                    # 결제 취소·환불로 무효 처리
+VERIFIED_STAGES = (RECIPIENT_CONFIRMED, PAYMENT_VERIFIED)
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS wishlists (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -13,6 +20,7 @@ CREATE TABLE IF NOT EXISTS wishlists (
     owner_name  TEXT NOT NULL,
     intro       TEXT NOT NULL DEFAULT '',
     edit_token  TEXT NOT NULL,
+    ranking_visibility TEXT NOT NULL DEFAULT 'public',
     created_at  INTEGER NOT NULL
 );
 
@@ -32,11 +40,39 @@ CREATE TABLE IF NOT EXISTS items (
     gifter_message TEXT NOT NULL DEFAULT '',
     gifter_display TEXT NOT NULL DEFAULT 'name',
     gifted_at      INTEGER,
+    gift_token     TEXT NOT NULL DEFAULT '',
+    gifter_key     TEXT NOT NULL DEFAULT '',
+    verification   TEXT NOT NULL DEFAULT 'claimed',
+    verified_at    INTEGER,
+    verify_ref     TEXT NOT NULL DEFAULT '',
     created_at     INTEGER NOT NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_items_wishlist ON items(wishlist_id);
+CREATE INDEX IF NOT EXISTS idx_items_gift_token ON items(gift_token);
 """
+
+# 이미 만들어진 데이터베이스에 나중에 추가된 컬럼들
+MIGRATIONS = {
+    "wishlists": [("ranking_visibility", "TEXT NOT NULL DEFAULT 'public'")],
+    "items": [
+        ("gift_token", "TEXT NOT NULL DEFAULT ''"),
+        ("gifter_key", "TEXT NOT NULL DEFAULT ''"),
+        ("verification", "TEXT NOT NULL DEFAULT 'claimed'"),
+        ("verified_at", "INTEGER"),
+        ("verify_ref", "TEXT NOT NULL DEFAULT ''"),
+    ],
+}
+
+
+def migrate(conn):
+    """예전 스키마로 만들어진 파일에도 새 컬럼을 채워 넣는다."""
+    for table, columns in MIGRATIONS.items():
+        existing = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}
+        for name, definition in columns:
+            if name not in existing:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {definition}")
+    conn.commit()
 
 
 def default_path():
@@ -48,6 +84,7 @@ def connect(path=None):
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     conn.executescript(SCHEMA)
+    migrate(conn)
     return conn
 
 
