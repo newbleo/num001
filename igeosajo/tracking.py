@@ -52,6 +52,22 @@ def tracking_url(url, gift_token):
     return urlunparse(parts._replace(query=urlencode(query)))
 
 
+def gift_link(url, gift_token):
+    """사주는 사람에게 건넬 최종 링크.
+
+    쿠팡 파트너스 자격증명이 있으면 딥링크 API로 제대로 된 제휴 링크를 만들고,
+    없거나 실패하면 subId 만 붙인 원래 링크로 조용히 물러난다.
+    """
+    if not url or not gift_token:
+        return url
+    if not is_affiliate_link(url):
+        return url
+    from . import coupang  # 순환 import 를 피하려고 여기서 불러온다
+
+    deep = coupang.deeplink_or_none(url, gift_token)
+    return deep or tracking_url(url, gift_token)
+
+
 def verify_signature(raw_body, signature):
     """웹훅 본문 HMAC-SHA256 서명을 확인한다.
 

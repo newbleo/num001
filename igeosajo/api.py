@@ -275,7 +275,7 @@ def reserve_item(conn, item_id):
         "reserve_token": reserve_token,
         "gift_token": gift_token,
         # 제휴 링크면 subId 가 붙은 주소, 아니면 원래 주소
-        "tracking_url": tracking.tracking_url(row["url"], gift_token),
+        "tracking_url": tracking.gift_link(row["url"], gift_token),
         "tracked": tracking.is_affiliate_link(row["url"]),
         "expires_in": db.RESERVE_TTL_SECONDS,
     }
@@ -381,9 +381,11 @@ def apply_payment_event(conn, payload):
         raise ApiError(404, "이 결제와 연결된 선물을 찾지 못했어요.")
 
     if status in ("paid", "converted", "confirmed"):
+        # '결제했어요'를 누르지 않고 그냥 사간 경우에도 여기서 선물로 확정된다.
         conn.execute(
-            "UPDATE items SET status='gifted', verification=?, verified_at=?, verify_ref=? WHERE id=?",
-            (db.PAYMENT_VERIFIED, db.now(), external_id, row["id"]),
+            "UPDATE items SET status='gifted', verification=?, verified_at=?, verify_ref=?,"
+            " gifted_at=COALESCE(gifted_at, ?) WHERE id=?",
+            (db.PAYMENT_VERIFIED, db.now(), external_id, db.now(), row["id"]),
         )
     elif status in ("cancelled", "canceled", "refunded"):
         # 취소·환불이면 랭킹에서 빼고 아이템을 다시 살 수 있게 되돌린다.
