@@ -13,6 +13,7 @@ from .config import (
     ConfigError,
     from_dict,
     load,
+    load_dotenv,
     make_route,
     normalize_date,
     normalize_time,
@@ -80,14 +81,30 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     out = parser.add_argument_group("알림/로그")
+    out.add_argument("--email", help="알림 받을 메일 주소 (쉼표로 여러 명)")
+    out.add_argument(
+        "--email-all",
+        action="store_true",
+        help="예약 성공뿐 아니라 감시 시작/종료도 메일로 받기",
+    )
     out.add_argument("--telegram-token", help="텔레그램 봇 토큰")
     out.add_argument("--telegram-chat-id", help="텔레그램 chat id")
     out.add_argument("--webhook", help="슬랙/디스코드 웹훅 URL")
     out.add_argument("--no-bell", action="store_true", help="성공 시 터미널 벨 끄기")
+    out.add_argument(
+        "--test-notify",
+        action="store_true",
+        help="설정된 알림 채널로 테스트 메시지를 보내고 종료 (메일 설정 확인용)",
+    )
     out.add_argument("--log-file", help="로그를 파일로도 남김")
     out.add_argument("--debug", action="store_true", help="디버그 로그 출력")
     out.add_argument("--quiet", action="store_true", help="경고 이상만 출력")
 
+    parser.add_argument(
+        "--env-file",
+        default=".env",
+        help="계정 정보를 담은 KEY=VALUE 파일 (기본: .env, 없으면 무시)",
+    )
     parser.add_argument(
         "--list-stations", action="store_true", help="SRT 정차역 목록을 출력하고 종료"
     )
@@ -196,6 +213,14 @@ def apply_overrides(config: AppConfig, args: argparse.Namespace) -> AppConfig:
         config.notify.telegram_chat_id = args.telegram_chat_id
     if args.webhook:
         config.notify.webhook_url = args.webhook
+    if args.email:
+        config.notify.email_to = args.email
+    if args.email_all:
+        config.notify.email_only_important = False
+    if config.notify.email_to and not config.notify.email_password:
+        import os
+
+        config.notify.email_password = os.environ.get("SMTP_PASSWORD", "")
     if args.no_bell:
         config.notify.bell = False
 
@@ -230,13 +255,34 @@ def main(argv: list[str] | None = None) -> int:
 
     setup_logging(args)
 
+    # 계정 정보는 설정을 읽기 전에 환경으로 올려둔다.
+    try:
+        loaded = load_dotenv(args.env_file)
+    except ConfigError as exc:
+        parser.error(str(exc))
+        return 2  # pragma: no cover
+    if loaded:
+        log.info("%s 에서 환경변수 %d개를 읽었습니다", args.env_file, loaded)
+
     try:
         config = load(args.config) if args.config else from_dict({})
         config = apply_overrides(config, args)
-        config.validate()
+        if not args.test_notify:
+            config.validate()
     except ConfigError as exc:
         parser.error(str(exc))
         return 2  # pragma: no cover - parser.error 가 종료시킴
+
+    notifier = notify.build(config.notify)
+
+    if args.test_notify:
+        notifier.send(
+            "🔔 trainwatch 테스트 알림\n"
+            "이 메시지가 보이면 알림 설정은 정상입니다.",
+            important=True,
+        )
+        log.info("테스트 알림을 보냈습니다")
+        return 0
 
     provider_kwargs = {}
     if config.provider == "korail":
@@ -248,8 +294,6 @@ def main(argv: list[str] | None = None) -> int:
     except ValueError as exc:
         parser.error(str(exc))
         return 2  # pragma: no cover
-
-    notifier = notify.build(config.notify)
     watcher = Watcher(provider, config, notifier)
 
     def handle_sigint(signum, frame):  # noqa: ARG001

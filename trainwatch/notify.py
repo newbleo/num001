@@ -1,10 +1,12 @@
-"""알림 채널: 콘솔, 텔레그램, 웹훅(슬랙/디스코드 호환)."""
+"""알림 채널: 콘솔, 이메일(SMTP), 텔레그램, 웹훅(슬랙/디스코드 호환)."""
 
 from __future__ import annotations
 
 import json
 import logging
+import smtplib
 import sys
+from email.message import EmailMessage
 from urllib.parse import quote
 
 log = logging.getLogger(__name__)
@@ -88,6 +90,70 @@ class WebhookNotifier(Notifier):
             log.warning("웹훅 알림 실패: %s", exc)
 
 
+class EmailNotifier(Notifier):
+    """SMTP로 메일을 보낸다. Gmail은 2단계 인증 + 앱 비밀번호가 필요하다.
+
+    기본값(only_important=True)은 예약 성공처럼 중요한 알림만 보낸다.
+    감시 시작/종료 같은 일반 메시지까지 받고 싶으면 only_important=False.
+    """
+
+    def __init__(
+        self,
+        to: str,
+        host: str = "smtp.gmail.com",
+        port: int = 465,
+        user: str = "",
+        password: str = "",
+        sender: str = "",
+        use_ssl: bool = True,
+        timeout: float = 15.0,
+        subject_prefix: str = "[trainwatch]",
+        only_important: bool = True,
+        smtp_factory=None,
+    ):
+        self.to = [address.strip() for address in to.split(",") if address.strip()]
+        self.host = host
+        self.port = port
+        self.user = user or (self.to[0] if self.to else "")
+        self.password = password
+        self.sender = sender or self.user
+        self.use_ssl = use_ssl
+        self.timeout = timeout
+        self.subject_prefix = subject_prefix
+        self.only_important = only_important
+        self._smtp_factory = smtp_factory
+
+    def _connect(self):
+        if self._smtp_factory is not None:
+            return self._smtp_factory(self.host, self.port, self.timeout)
+        if self.use_ssl:
+            return smtplib.SMTP_SSL(self.host, self.port, timeout=self.timeout)
+        return smtplib.SMTP(self.host, self.port, timeout=self.timeout)
+
+    def _build_message(self, message: str) -> EmailMessage:
+        subject = message.strip().splitlines()[0] if message.strip() else "알림"
+        mail = EmailMessage()
+        mail["Subject"] = f"{self.subject_prefix} {subject}".strip()
+        mail["From"] = self.sender
+        mail["To"] = ", ".join(self.to)
+        mail.set_content(message)
+        return mail
+
+    def send(self, message: str, important: bool = False) -> None:
+        if not self.to or (self.only_important and not important):
+            return
+        try:
+            with self._connect() as smtp:
+                if not self.use_ssl and self._smtp_factory is None:
+                    smtp.starttls()
+                if self.password:
+                    smtp.login(self.user, self.password)
+                smtp.send_message(self._build_message(message))
+            log.info("메일 알림을 보냈습니다: %s", ", ".join(self.to))
+        except Exception as exc:  # 알림 실패가 예매를 막으면 안 된다
+            log.warning("메일 알림 실패: %s", exc)
+
+
 class MultiNotifier(Notifier):
     def __init__(self, *notifiers: Notifier):
         self.notifiers = [n for n in notifiers if n is not None]
@@ -107,4 +173,24 @@ def build(config) -> Notifier:
         channels.append(TelegramNotifier(config.telegram_token, config.telegram_chat_id))
     if config.webhook_url:
         channels.append(WebhookNotifier(config.webhook_url))
+    if config.email_to:
+        if not config.email_password:
+            log.warning(
+                "메일 주소(%s)는 설정됐지만 SMTP 비밀번호가 없습니다. "
+                "Gmail 앱 비밀번호를 SMTP_PASSWORD 환경변수에 넣어주세요. (메일 알림 꺼짐)",
+                config.email_to,
+            )
+        else:
+            channels.append(
+                EmailNotifier(
+                    to=config.email_to,
+                    host=config.email_host,
+                    port=config.email_port,
+                    user=config.email_user,
+                    password=config.email_password,
+                    sender=config.email_from,
+                    use_ssl=config.email_ssl,
+                    only_important=config.email_only_important,
+                )
+            )
     return MultiNotifier(*channels)

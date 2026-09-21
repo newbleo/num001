@@ -16,15 +16,30 @@ pip install -r requirements.txt
 
 ## 빠른 시작
 
-계정은 환경변수로 넣습니다.
+### 1. 계정 설정 (필수)
+
+예약은 **본인 계정으로 로그인한 세션**에서만 됩니다. 아이디는 회원번호·이메일·휴대폰번호 중
+아무거나 쓰면 되고, 형식은 자동으로 알아서 구분합니다.
+
+`.env` 파일에 적어두면 매번 입력하지 않아도 됩니다. (`.env` 는 `.gitignore` 에 있어 커밋되지 않습니다)
 
 ```bash
-export SRT_ID='you@example.com'      # 회원번호 / 이메일 / 휴대폰번호 모두 가능
-export SRT_PW='********'
-# 코레일이면 KORAIL_ID / KORAIL_PW
+cp .env.example .env
+# .env 를 열어 채우기
+#   KORAIL_ID=alstn950619@gmail.com
+#   KORAIL_PW=코레일_비밀번호
+#   SMTP_PASSWORD=지메일_앱비밀번호     ← 메일 알림 쓸 때만
 ```
 
-실행:
+환경변수로 직접 줘도 됩니다(셸 값이 `.env` 보다 우선).
+
+```bash
+export KORAIL_ID='alstn950619@gmail.com'
+export KORAIL_PW='********'
+# SRT 라면 SRT_ID / SRT_PW
+```
+
+### 2. 실행
 
 ```bash
 python -m trainwatch --provider srt --from 수서 --to 부산 \
@@ -96,7 +111,11 @@ python -m trainwatch -c config.yaml
 | `--duration` / `--max-attempts` | 몇 분 / 몇 회까지 감시할지 |
 | `--stop-after` | 예약 N건 성공 시 종료 (기본 1) |
 | `--dry-run` | 자리를 찾아도 예약하지 않고 알림만 |
-| `--telegram-token`, `--telegram-chat-id`, `--webhook` | 알림 채널 |
+| `--email you@gmail.com` | 메일 알림 받을 주소 |
+| `--email-all` | 예약 성공뿐 아니라 감시 시작/종료도 메일로 |
+| `--test-notify` | 알림 채널만 테스트하고 종료 |
+| `--telegram-token`, `--telegram-chat-id`, `--webhook` | 그 외 알림 채널 |
+| `--env-file` | 계정을 담은 파일 (기본 `.env`) |
 | `--list-stations` | SRT 정차역 목록 출력 |
 
 종료 코드: `0` 예약 성공, `1` 못 잡고 종료, `3` 로그인 실패, `4` 사업자 오류, `130` 사용자 중단.
@@ -117,19 +136,56 @@ python -m trainwatch -c config.yaml
 
 ## 알림
 
+기본은 콘솔 출력이고, 메일·텔레그램·웹훅을 함께 켤 수 있습니다.
+
+### 메일 (Gmail)
+
+Gmail은 **계정 비밀번호로는 SMTP 로그인이 안 됩니다.** 2단계 인증을 켠 뒤
+[앱 비밀번호](https://myaccount.google.com/apppasswords)에서 16자리를 발급받아
+`SMTP_PASSWORD` 에 넣으세요.
+
+```bash
+python -m trainwatch -c configs/seodaejeon-0923.yaml --email alstn950619@gmail.com
+```
+
+설정 파일에서는 이렇게 씁니다.
+
+```yaml
+notify:
+  email:
+    to: alstn950619@gmail.com   # 쉼표로 여러 명 가능
+    smtp_host: smtp.gmail.com
+    smtp_port: 465
+    only_important: true        # 예약 성공/실패만. false 면 감시 시작·종료도 메일로
+```
+
+보내는 주소를 따로 두지 않으면 받는 주소로 로그인해서 자기 자신에게 보냅니다.
+네이버 등 다른 메일도 `smtp_host`/`smtp_port` 만 바꾸면 되고, 587 포트를 쓴다면 `ssl: false`
+로 두면 STARTTLS로 붙습니다.
+
+설정이 맞는지는 감시를 돌리기 전에 확인해 보세요. 테스트 메시지 한 통만 보내고 끝납니다.
+
+```bash
+python -m trainwatch --test-notify --email alstn950619@gmail.com
+```
+
+### 그 외
+
 - **텔레그램**: [@BotFather](https://t.me/BotFather) 로 봇을 만들고 토큰을, 봇과 대화를 시작한 뒤
   `https://api.telegram.org/bot<토큰>/getUpdates` 에서 `chat_id` 를 확인해 넣습니다.
 - **웹훅**: 슬랙/디스코드 웹훅 URL을 그대로 쓰면 됩니다(`{"text": ...}` 와 `{"content": ...}` 둘 다 보냄).
+
+알림 전송이 실패해도 감시와 예약은 계속됩니다(경고 로그만 남습니다).
 
 ## 구조
 
 ```
 trainwatch/
   cli.py            명령행 파싱, 로깅, 시그널 처리
-  config.py         YAML + 환경변수 + 검증
+  config.py         YAML + 환경변수(.env) + 검증
   watcher.py        감시 루프 (폴링·백오프·재로그인·예약 시도)
   models.py         Train / Reservation / SeatClass
-  notify.py         콘솔 · 텔레그램 · 웹훅
+  notify.py         콘솔 · 메일(SMTP) · 텔레그램 · 웹훅
   providers/
     base.py         Provider 인터페이스 + 연습용 FakeProvider
     srt.py          SRT 모바일 API

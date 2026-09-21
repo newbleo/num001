@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import pathlib
 import re
 from dataclasses import dataclass, field
 from datetime import date as date_cls
@@ -18,6 +19,38 @@ MIN_INTERVAL = 1.0  # 초. 이보다 짧으면 사업자 쪽에서 차단당하�
 
 class ConfigError(Exception):
     """설정 파일이 잘못된 경우."""
+
+
+def load_dotenv(path: str = ".env") -> int:
+    """KEY=VALUE 형식 파일을 환경변수로 읽는다.
+
+    이미 환경에 있는 값은 덮어쓰지 않는다(셸에서 준 값이 우선).
+    파일이 없으면 조용히 0을 돌려준다.
+    """
+
+    try:
+        lines = pathlib.Path(path).read_text(encoding="utf-8").splitlines()
+    except FileNotFoundError:
+        return 0
+    except OSError as exc:
+        raise ConfigError(f"{path} 를 읽을 수 없습니다: {exc}") from exc
+
+    loaded = 0
+    for raw in lines:
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line[len("export "):].lstrip()
+        key, sep, value = line.partition("=")
+        if not sep:
+            continue
+        key = key.strip()
+        value = value.strip().strip("'\"")
+        if key and key not in os.environ:
+            os.environ[key] = value
+            loaded += 1
+    return loaded
 
 
 def expand_env(value):
@@ -83,6 +116,14 @@ class NotifyConfig:
     telegram_token: str = ""
     telegram_chat_id: str = ""
     webhook_url: str = ""
+    email_to: str = ""                  # 쉼표로 여러 명 가능
+    email_host: str = "smtp.gmail.com"
+    email_port: int = 465
+    email_user: str = ""                # 비우면 email_to 의 첫 주소
+    email_password: str = ""            # Gmail 은 '앱 비밀번호'
+    email_from: str = ""                # 비우면 email_user
+    email_ssl: bool = True
+    email_only_important: bool = True   # 예약 성공 등 중요한 알림만
 
 
 @dataclass
@@ -234,12 +275,21 @@ def from_dict(raw: dict) -> AppConfig:
     n = data.get("notify") or {}
     telegram = n.get("telegram") or {}
     webhook = n.get("webhook") or {}
+    email = n.get("email") or {}
     notify = NotifyConfig(
         console=bool(n.get("console", True)),
         bell=bool(n.get("bell", True)),
         telegram_token=str(telegram.get("token", "")),
         telegram_chat_id=str(telegram.get("chat_id", "")),
         webhook_url=str(webhook.get("url", "")),
+        email_to=str(email.get("to", "")),
+        email_host=str(email.get("smtp_host", "smtp.gmail.com")),
+        email_port=int(email.get("smtp_port", 465)),
+        email_user=str(email.get("user", "")),
+        email_password=str(email.get("password", "")) or os.environ.get("SMTP_PASSWORD", ""),
+        email_from=str(email.get("from", "")),
+        email_ssl=bool(email.get("ssl", True)),
+        email_only_important=bool(email.get("only_important", True)),
     )
 
     config = AppConfig(

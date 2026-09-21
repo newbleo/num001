@@ -56,3 +56,12 @@ notify:
     chat_id: ${TG_CHAT_ID}
   webhook:
     url: ${WEBHOOK_URL} # 슬랙/디스코드 웹훅
+  email:
+    to: you@example.com      # 쉼표로 여러 명 가능
+    smtp_host: smtp.gmail.com
+    smtp_port: 465
+    ssl: true
+    user: ""                 # 비우면 to 의 첫 주소로 로그인
+    password: ${SMTP_PASSWORD}  # Gmail 은 계정 비밀번호가 아니라 '앱 비밀번호'
+    from: ""                 # 비우면 user
+    only_important: true     # false 면 감시 시작/종료도 메일로

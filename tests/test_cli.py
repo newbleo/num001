@@ -107,3 +107,29 @@ class RouteOptionTest(unittest.TestCase):
         self.assertEqual(len(config.routes), 1)
         self.assertEqual(config.routes[0].departure, "영등포")
         self.assertEqual(config.routes[0].time, "140000")  # 파일의 시각은 유지
+
+
+class NotifyOptionTest(unittest.TestCase):
+    def parse(self, argv):
+        return cli.build_parser().parse_args(argv)
+
+    def test_email_flags(self):
+        import os
+
+        os.environ["SMTP_PASSWORD"] = "app-pw"
+        self.addCleanup(os.environ.pop, "SMTP_PASSWORD", None)
+        args = self.parse(["--email", "alstn950619@gmail.com", "--email-all"])
+        config = cli.apply_overrides(cli.from_dict({}), args)
+        self.assertEqual(config.notify.email_to, "alstn950619@gmail.com")
+        self.assertFalse(config.notify.email_only_important)
+        self.assertEqual(config.notify.email_password, "app-pw")
+
+    def test_test_notify_exits_without_login(self):
+        import io
+        import contextlib
+
+        buffer = io.StringIO()
+        with contextlib.redirect_stdout(buffer):
+            exit_code = cli.main(["--test-notify", "--quiet", "--no-bell"])
+        self.assertEqual(exit_code, 0)
+        self.assertIn("테스트 알림", buffer.getvalue())

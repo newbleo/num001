@@ -1,8 +1,11 @@
 # 9/23(수) 14:00 이후 서대전행 취소표 감시
 #   용산 → 서대전, 영등포 → 서대전 두 노선을 번갈아 조회한다.
 #
-#   export KORAIL_ID='...'   # 코레일 회원번호 / 이메일 / 휴대폰번호
-#   export KORAIL_PW='...'
+#   계정은 .env 파일에 넣어두면 매번 export 하지 않아도 된다 (.env.example 참고)
+#     KORAIL_ID=...      코레일 회원번호 / 이메일 / 휴대폰번호
+#     KORAIL_PW=...      코레일 비밀번호
+#     SMTP_PASSWORD=...  Gmail 앱 비밀번호 (메일 알림용)
+#
 #   python -m trainwatch -c configs/seodaejeon-0923.yaml
 #
 #   처음에는 --dry-run 을 붙여 조회만 확인해 보세요.
@@ -41,6 +44,9 @@ watch:
 notify:
   console: true
   bell: true
-  telegram:
-    token: ${TG_TOKEN}
-    chat_id: ${TG_CHAT_ID}
+  email:
+    to: alstn950619@gmail.com
+    # user 를 비워두면 to 주소로 로그인한다. 비밀번호는 SMTP_PASSWORD 환경변수에서 읽는다.
+    smtp_host: smtp.gmail.com
+    smtp_port: 465
+    only_important: true   # false 로 두면 감시 시작/종료 메일도 받는다
