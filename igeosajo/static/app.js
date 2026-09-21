@@ -184,6 +184,7 @@
           <span class="price">${esc(won(item.price))}</span>
           <span class="badge tier-${tierOf(item.price)}">${TIERS[tierOf(item.price)].label}</span>
           ${item.category ? `<span class="badge">${esc(item.category)}</span>` : ""}
+          ${item.trackable ? '<span class="badge tracked" title="결제가 자동으로 확인돼요">자동확인</span>' : ""}
         </div>
         ${item.note ? `<p class="note">${esc(item.note)}</p>` : ""}
         ${gifted && (item.gifter_label || item.gifter_message) ? `
@@ -268,10 +269,12 @@
             <label class="field"><span>가격 (원)</span>
               <input name="price" inputmode="numeric" placeholder="39000"></label>
             <label class="field"><span>상품 링크</span>
-              <input name="url" type="url" placeholder="https://..."></label>
+              <input name="url" type="url" id="item-url"
+                     placeholder="쿠팡에서 복사한 주소를 그대로 붙여넣으세요"></label>
             <label class="field"><span>카테고리 (선택)</span>
               <input name="category" maxlength="20" placeholder="가전"></label>
           </div>
+          <p class="link-hint" id="link-hint" hidden></p>
           <label class="field"><span>한마디 (선택)</span>
             <input name="note" maxlength="200" placeholder="색상은 아무거나 좋아요!"></label>
           <p class="form-error" id="item-error" hidden></p>
@@ -378,6 +381,8 @@
         }
       });
 
+      wireLinkHint();
+
       document.getElementById("ranking-visibility").addEventListener("change", async (event) => {
         try {
           await callApi(`/api/wishlists/${state.slug}`, {
@@ -424,10 +429,49 @@
     }
   }
 
+  function wireLinkHint() {
+    const input = document.getElementById("item-url");
+    const hint = document.getElementById("link-hint");
+    let timer = null;
+
+    const check = async () => {
+      const url = input.value.trim();
+      if (!url) {
+        hint.hidden = true;
+        return;
+      }
+      try {
+        const info = await callApi("/api/link/inspect", { method: "POST", body: { url } });
+        hint.className = "link-hint " + (info.trackable ? "ok" : "plain");
+        hint.innerHTML =
+          `${info.trackable ? "🔗" : "🛍️"} ${esc(info.label)}` +
+          (info.changed ? '<br><span class="muted small">추적용 주소는 정리해서 저장할게요.</span>' : "");
+        hint.hidden = false;
+        if (info.changed) input.value = info.url;
+      } catch (_) {
+        hint.hidden = true;
+      }
+    };
+
+    ["input", "paste", "change"].forEach((event) =>
+      input.addEventListener(event, () => {
+        clearTimeout(timer);
+        timer = setTimeout(check, 400);
+      }));
+  }
+
   /* ---------- 선물 플로우 ---------- */
   const modal = document.getElementById("gift-modal");
   const giftForm = document.getElementById("gift-form");
   const giftError = document.getElementById("gift-error");
+  const stepGo = document.getElementById("gift-step-go");
+  const stepDone = document.getElementById("gift-step-done");
+
+  function showStep(which) {
+    stepGo.hidden = which !== "go";
+    stepDone.hidden = which !== "done";
+    if (which === "done") giftForm.querySelector("input[name=gifter_name]").focus();
+  }
 
   async function startGift(itemId) {
     const item = state.data.items.find((i) => i.id === itemId);
@@ -448,24 +492,31 @@
     }
 
     document.getElementById("gift-modal-item").textContent = `${item.title} · ${won(item.price)}`;
-    const link = document.getElementById("gift-modal-link");
-    if (reserved.tracking_url) {
-      // 제휴 링크면 subId 가 붙어 있어 나중에 실제 결제와 맞춰볼 수 있다
-      link.href = reserved.tracking_url;
-      link.hidden = false;
-    } else {
-      link.hidden = true;
+    // 제휴 링크면 subId 가 붙어 있어 나중에 실제 결제와 맞춰볼 수 있다
+    const url = reserved.tracking_url || "";
+    for (const id of ["gift-modal-link", "gift-reopen"]) {
+      const link = document.getElementById(id);
+      link.href = url || "#";
+      link.hidden = !url;
     }
     document.getElementById("gift-track-note").textContent = reserved.tracked
       ? "이 링크로 결제하시면 결제 내역이 자동으로 확인돼 랭킹에 반영돼요."
       : "이 쇼핑몰은 자동 확인이 안 돼요. 받는 분이 확인해주면 랭킹에 올라갑니다.";
+
     giftForm.reset();
     document.getElementById("gift-name-field").hidden = false;
     giftError.hidden = true;
+    // 링크가 없는 아이템이면 보낼 데가 없으니 바로 2단계로
+    showStep(url ? "go" : "done");
     modal.hidden = false;
-    giftForm.querySelector("input[name=gifter_name]").focus();
     await loadWishlist({ keepModal: true });
   }
+
+  // 상품 페이지가 새 창으로 열리면, 원래 화면은 '결제 완료' 단계로 넘어간다
+  document.getElementById("gift-modal-link").addEventListener("click", () => {
+    setTimeout(() => showStep("done"), 300);
+  });
+  document.getElementById("gift-skip").addEventListener("click", () => showStep("done"));
 
   async function cancelGift() {
     const pending = state.pending;
@@ -547,34 +598,70 @@
     fireConfetti();
   }
 
+  /* ---------- 축포 ---------- */
   const canvas = document.getElementById("confetti");
   const ctx = canvas.getContext("2d");
+  const COLORS = ["#e0553f", "#c98a27", "#2f8f5b", "#ff9f7a", "#f5d76e", "#6ec1e4", "#e46ea8"];
+  const GRAVITY = 0.28;
+  const DRAG = 0.985;
   let pieces = [];
   let rafId = null;
+
+  function piece(x, y, vx, vy) {
+    const streamer = Math.random() < 0.25;
+    return {
+      x, y, vx, vy,
+      size: streamer ? 3 + Math.random() * 3 : 7 + Math.random() * 7,
+      length: streamer ? 18 + Math.random() * 20 : 0,
+      rot: Math.random() * Math.PI * 2,
+      vr: -0.25 + Math.random() * 0.5,
+      color: COLORS[Math.floor(Math.random() * COLORS.length)],
+      life: 1,
+    };
+  }
+
+  /** 바닥 모서리에서 비스듬히 쏘아 올리는 축포 한 발 */
+  function cannon(x, y, angle, count) {
+    for (let i = 0; i < count; i += 1) {
+      const spread = angle + (Math.random() - 0.5) * 0.7;
+      const speed = 13 + Math.random() * 12;
+      pieces.push(piece(x, y, Math.cos(spread) * speed, Math.sin(spread) * speed));
+    }
+  }
 
   function fireConfetti() {
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
     canvas.width = window.innerWidth;
     canvas.height = window.innerHeight;
-    const colors = ["#e0553f", "#c98a27", "#2f8f5b", "#ff9f7a", "#f5d76e"];
-    pieces = Array.from({ length: 120 }, () => ({
-      x: Math.random() * canvas.width,
-      y: -20 - Math.random() * canvas.height * 0.4,
-      size: 6 + Math.random() * 8,
-      vy: 2 + Math.random() * 3.5,
-      vx: -1.5 + Math.random() * 3,
-      rot: Math.random() * Math.PI,
-      vr: -0.15 + Math.random() * 0.3,
-      color: colors[Math.floor(Math.random() * colors.length)],
-    }));
+    pieces = [];
+
+    const w = canvas.width;
+    const h = canvas.height;
+    // 양쪽 아래에서 펑, 펑
+    cannon(0, h, -Math.PI / 3.2, 70);
+    cannon(w, h, -Math.PI + Math.PI / 3.2, 70);
+    // 위에서 흩뿌려 내려오는 조각들
+    for (let i = 0; i < 90; i += 1) {
+      pieces.push(piece(Math.random() * w, -20 - Math.random() * h * 0.5,
+                        -1.5 + Math.random() * 3, 1 + Math.random() * 3));
+    }
+    // 잠시 뒤 한 발 더 쏴서 여운을 남긴다
+    setTimeout(() => {
+      if (celebration.hidden) return;
+      cannon(w * 0.5, h, -Math.PI / 2, 60);
+      if (!rafId) rafId = requestAnimationFrame(tick);
+    }, 450);
+
     cancelAnimationFrame(rafId);
     rafId = requestAnimationFrame(tick);
   }
 
   function tick() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    pieces = pieces.filter((p) => p.y < canvas.height + 40);
+    pieces = pieces.filter((p) => p.y < canvas.height + 60 && p.life > 0);
     pieces.forEach((p) => {
+      p.vx *= DRAG;
+      p.vy = p.vy * DRAG + GRAVITY;
       p.x += p.vx;
       p.y += p.vy;
       p.rot += p.vr;
@@ -582,11 +669,19 @@
       ctx.translate(p.x, p.y);
       ctx.rotate(p.rot);
       ctx.fillStyle = p.color;
-      ctx.fillRect(-p.size / 2, -p.size / 2, p.size, p.size * 0.6);
+      if (p.length) {
+        ctx.fillRect(-p.size / 2, -p.length / 2, p.size, p.length);
+      } else {
+        ctx.fillRect(-p.size / 2, -p.size / 2, p.size, p.size * 0.6);
+      }
       ctx.restore();
     });
-    rafId = pieces.length ? requestAnimationFrame(tick) : null;
-    if (!pieces.length) ctx.clearRect(0, 0, canvas.width, canvas.height);
+    if (pieces.length) {
+      rafId = requestAnimationFrame(tick);
+    } else {
+      rafId = null;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+    }
   }
 
   /* ---------- 라우팅 ---------- */

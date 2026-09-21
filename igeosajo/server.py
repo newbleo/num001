@@ -26,6 +26,7 @@ ROUTES = [
     ("POST", r"^/api/items/(?P<item_id>\d+)/gift$", "gift_item"),
     ("POST", r"^/api/items/(?P<item_id>\d+)/confirm$", "confirm_receipt"),
     ("POST", r"^/api/webhooks/payment$", "payment_webhook"),
+    ("POST", r"^/api/link/inspect$", "inspect_link"),
 ]
 COMPILED = [(method, re.compile(pattern), handler) for method, pattern, handler in ROUTES]
 
@@ -134,6 +135,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(200, api.cancel_reservation(conn, item_id, body.get("reserve_token")))
         if name == "gift_item":
             return self._json(200, api.gift_item(conn, item_id, self._read_json()))
+        if name == "inspect_link":
+            return self._json(200, api.inspect_link(self._read_json()))
         if name == "confirm_receipt":
             return self._json(200, api.confirm_receipt(conn, item_id, token))
         if name == "payment_webhook":

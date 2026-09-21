@@ -13,7 +13,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from igeosajo import db, server  # noqa: E402
 
 
-class ApiTestCase(unittest.TestCase):
+class ServerTestCase(unittest.TestCase):
+    """서버를 띄우고 요청을 보내는 공통 뼈대 (자체 테스트는 없다)."""
+
     @classmethod
     def setUpClass(cls):
         os.environ["IGEOSAJO_QUIET"] = "1"
@@ -59,6 +61,8 @@ class ApiTestCase(unittest.TestCase):
         self.assertEqual(status, 201, payload)
         return payload
 
+
+class ApiTestCase(ServerTestCase):
     # --- 위시리스트 ---------------------------------------------------
     def test_create_wishlist_generates_slug_and_token(self):
         wishlist = self.make_wishlist()
@@ -274,6 +278,66 @@ class ApiTestCase(unittest.TestCase):
         with urllib.request.urlopen(self.base + "/../igeosajo/server.py") as res:
             body = res.read().decode()
         self.assertNotIn("ThreadingHTTPServer", body)
+
+
+class LinkInspectTestCase(ServerTestCase):
+    """붙여넣은 쇼핑몰 링크를 알아보고 정리하는 기능."""
+
+    def inspect(self, url):
+        return self.request("POST", "/api/link/inspect", {"url": url})
+
+    def test_coupang_product_link_is_trackable(self):
+        status, payload = self.inspect(
+            "https://www.coupang.com/vp/products/7823?itemId=1&vendorItemId=2&searchId=zz&rank=3")
+        self.assertEqual(status, 200)
+        self.assertTrue(payload["trackable"])
+        self.assertEqual(payload["kind"], "product")
+        # 옵션을 가리키는 값은 남고 추적용 쿼리는 지워진다
+        self.assertEqual(payload["url"],
+                         "https://www.coupang.com/vp/products/7823?itemId=1&vendorItemId=2")
+        self.assertTrue(payload["changed"])
+
+    def test_coupang_search_link_is_recognised(self):
+        _, payload = self.inspect("https://www.coupang.com/np/search?q=%EC%B1%85&channel=user")
+        self.assertEqual(payload["kind"], "search")
+        self.assertTrue(payload["trackable"])
+        self.assertEqual(payload["url"], "https://www.coupang.com/np/search?q=%EC%B1%85")
+
+    def test_coupang_shortlink_is_recognised(self):
+        _, payload = self.inspect("https://link.coupang.com/a/abcde")
+        self.assertEqual(payload["kind"], "shortlink")
+        self.assertTrue(payload["trackable"])
+
+    def test_other_shop_is_not_trackable_but_cleaned(self):
+        _, payload = self.inspect("https://www.musinsa.com/goods/1?utm_source=x&color=black")
+        self.assertFalse(payload["trackable"])
+        self.assertEqual(payload["kind"], "other")
+        self.assertEqual(payload["url"], "https://www.musinsa.com/goods/1?color=black")
+
+    def test_lookalike_host_is_not_trackable(self):
+        _, payload = self.inspect("https://coupang.com.evil.example/vp/products/1")
+        self.assertFalse(payload["trackable"])
+
+    def test_non_http_link_rejected(self):
+        status, _ = self.inspect("javascript:alert(1)")
+        self.assertEqual(status, 400)
+
+    def test_empty_url_is_harmless(self):
+        status, payload = self.inspect("")
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["kind"], "empty")
+
+    def test_added_item_stores_cleaned_url_and_reports_trackable(self):
+        wishlist = self.make_wishlist()
+        item = self.add_item(
+            wishlist, url="https://www.coupang.com/vp/products/99?itemId=5&searchId=drop&rank=1")
+        self.assertEqual(item["url"], "https://www.coupang.com/vp/products/99?itemId=5")
+        self.assertTrue(item["trackable"])
+
+    def test_non_coupang_item_is_not_trackable(self):
+        wishlist = self.make_wishlist()
+        item = self.add_item(wishlist, url="https://shop.example.com/1")
+        self.assertFalse(item["trackable"])
 
 
 if __name__ == "__main__":

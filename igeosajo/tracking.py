@@ -16,6 +16,16 @@ from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 DEFAULT_AFFILIATE_HOSTS = "link.coupang.com,coupang.com"
 
+# 쿠팡 상품 링크에서 살려둬야 하는 쿼리 (옵션·상품 식별에 필요)
+COUPANG_KEEP = {"itemid", "vendoritemid", "q"}
+# 어느 쇼핑몰이든 지워도 되는 추적용 쿼리
+JUNK_PREFIXES = ("utm_", "spec", "addtag", "ctag", "lptag", "pricepattern", "clickbeacon")
+JUNK_PARAMS = {
+    "searchid", "rank", "isaddedcart", "itemscount", "searchrank", "traceid",
+    "requestid", "sourcetype", "clickeventid", "korereferrer", "src", "spec",
+    "fbclid", "gclid", "wref", "wtime",
+}
+
 
 def _env(name, default=""):
     return os.environ.get(name, default)
@@ -39,6 +49,68 @@ def is_affiliate_link(url):
     if not host:
         return False
     return any(host == known or host.endswith("." + known) for known in affiliate_hosts())
+
+
+def link_kind(url):
+    """붙여넣은 링크가 어떤 종류인지 알아본다."""
+    parts = urlparse(url)
+    host = (parts.hostname or "").lower()
+    if not is_affiliate_link(url):
+        return "other"
+    if host == "link.coupang.com":
+        return "shortlink"
+    if "/vp/products/" in parts.path:
+        return "product"
+    if "/np/search" in parts.path or parts.path.startswith("/search"):
+        return "search"
+    return "coupang"
+
+
+def clean_url(url):
+    """검색하다 복사한 링크에 붙어 오는 추적 쿼리를 털어낸다.
+
+    쿠팡 상품 링크는 itemId·vendorItemId 가 옵션을 가리키므로 남기고,
+    나머지(searchId, rank, isAddedCart …)는 지운다.
+    """
+    if not url:
+        return url
+    parts = urlparse(url)
+    if not parts.scheme or not parts.hostname:
+        return url
+
+    coupang = is_affiliate_link(url)
+    kept = []
+    for key, value in parse_qsl(parts.query, keep_blank_values=True):
+        low = key.lower()
+        if coupang:
+            if low in COUPANG_KEEP:
+                kept.append((key, value))
+            continue
+        if low in JUNK_PARAMS or low.startswith(JUNK_PREFIXES):
+            continue
+        kept.append((key, value))
+    return urlunparse(parts._replace(query=urlencode(kept), fragment=""))
+
+
+def inspect(url):
+    """링크를 등록하기 전에 어떤 링크인지 알려준다 (네트워크 호출 없음)."""
+    cleaned = clean_url(url)
+    kind = link_kind(cleaned)
+    trackable = is_affiliate_link(cleaned)
+    labels = {
+        "product": "쿠팡 상품 링크예요. 결제가 자동으로 확인됩니다.",
+        "shortlink": "쿠팡 파트너스 링크예요. 결제가 자동으로 확인됩니다.",
+        "search": "쿠팡 검색 링크예요. 상품 하나를 골라 그 페이지 주소를 넣으면 더 정확해요.",
+        "coupang": "쿠팡 링크예요. 결제가 자동으로 확인됩니다.",
+        "other": "이 쇼핑몰은 자동 확인이 안 돼요. 받는 분이 확인해주면 랭킹에 올라갑니다.",
+    }
+    return {
+        "url": cleaned,
+        "changed": cleaned != (url or ""),
+        "kind": kind,
+        "trackable": trackable,
+        "label": labels.get(kind, labels["other"]),
+    }
 
 
 def tracking_url(url, gift_token):

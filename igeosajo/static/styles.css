@@ -76,6 +76,22 @@ h3 { margin: 0; font-size: 1rem; }
 .ghost-btn:hover { background: var(--surface-2); }
 .danger-btn { background: transparent; border-color: var(--line); color: var(--accent); }
 
+.primary-btn.block, .ghost-btn.block { display: flex; width: 100%; }
+.primary-btn.big { padding: 14px 20px; font-size: 1.05rem; }
+.linkish {
+  background: none; border: 0; color: var(--muted); font: inherit; font-size: .88rem;
+  text-decoration: underline; cursor: pointer; padding: 6px; width: 100%;
+}
+.linkish:hover { color: var(--text); }
+.center { text-align: center; }
+
+.link-hint {
+  margin: 0; padding: 10px 12px; border-radius: 10px; font-size: .88rem;
+  border: 1px solid var(--line); background: var(--surface-2);
+}
+.link-hint.ok { border-color: var(--ok); color: var(--ok); background: transparent; }
+.badge.tracked { color: var(--ok); border-color: var(--ok); }
+
 .field { display: grid; gap: 4px; font-size: .9rem; }
 .field > span { color: var(--muted); font-weight: 600; }
 input, select, textarea {
@@ -193,7 +209,10 @@ fieldset { border: 0; padding: 0; margin: 0; }
   position: absolute; top: 12px; right: 12px; background: transparent; border: 0;
   font-size: 1.1rem; cursor: pointer; color: var(--muted);
 }
-.modal-item { font-weight: 700; margin: 0 0 12px; }
+.modal-item { font-weight: 700; margin: 0 0 12px; color: var(--muted); }
+#gift-step-go, #gift-step-done { display: grid; gap: 12px; }
+#gift-step-go h2, #gift-step-done h2 { margin: 0; }
+#gift-step-go p, #gift-step-done > p { margin: 0; }
 .steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 18px; }
 .steps li { display: flex; gap: 12px; align-items: flex-start; }
 .steps p { margin: 4px 0 10px; font-size: .88rem; }

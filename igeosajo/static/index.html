@@ -26,45 +26,43 @@
 <div class="modal-backdrop" id="gift-modal" hidden>
   <div class="modal" role="dialog" aria-modal="true" aria-labelledby="gift-modal-title">
     <button class="modal-close" data-gift-cancel aria-label="닫기">✕</button>
-    <h2 id="gift-modal-title">선물 준비하기</h2>
     <p class="modal-item" id="gift-modal-item"></p>
-    <ol class="steps">
-      <li>
-        <span class="step-no">1</span>
-        <div>
-          <strong>상품 페이지에서 결제해주세요</strong>
-          <p class="muted">30분 동안 다른 분이 같은 걸 사지 않도록 잠시 찜해둘게요.</p>
-          <p class="muted small" id="gift-track-note"></p>
-          <a class="primary-btn" id="gift-modal-link" target="_blank" rel="noopener noreferrer">상품 보러가기 ↗</a>
-        </div>
-      </li>
-      <li>
-        <span class="step-no">2</span>
-        <div>
-          <strong>결제를 마치셨다면 알려주세요</strong>
-          <form id="gift-form" class="stack">
-            <fieldset class="radio-row">
-              <legend class="muted">이름을 어떻게 남길까요?</legend>
-              <label><input type="radio" name="display" value="name" checked> 실명/닉네임</label>
-              <label><input type="radio" name="display" value="anon"> 익명의 산타</label>
-            </fieldset>
-            <label class="field" id="gift-name-field">
-              <span>이름 또는 닉네임</span>
-              <input name="gifter_name" maxlength="40" placeholder="예) 민수, 대학동기 민수">
-            </label>
-            <label class="field">
-              <span>한마디 (선택)</span>
-              <input name="message" maxlength="200" placeholder="생일 축하해! 🎂">
-            </label>
-            <p class="form-error" id="gift-error" hidden></p>
-            <div class="row">
-              <button class="primary-btn" type="submit">결제 완료했어요 🎉</button>
-              <button class="ghost-btn" type="button" data-gift-cancel>취소</button>
-            </div>
-          </form>
-        </div>
-      </li>
-    </ol>
+
+    <!-- 1단계: 상품 페이지로 보내기 -->
+    <section id="gift-step-go">
+      <h2 id="gift-modal-title">결제하러 가볼까요?</h2>
+      <p class="muted small" id="gift-track-note"></p>
+      <a class="primary-btn block" id="gift-modal-link" target="_blank" rel="noopener noreferrer">
+        상품 페이지로 이동 ↗</a>
+      <p class="muted small center">30분 동안 다른 분이 같은 걸 사지 않도록 찜해둘게요.</p>
+      <button class="linkish" type="button" id="gift-skip">이미 결제했어요 →</button>
+    </section>
+
+    <!-- 2단계: 결제 완료 알리기 -->
+    <section id="gift-step-done" hidden>
+      <h2>결제 페이지에서 결제를 완료해주세요</h2>
+      <p class="muted">다 하셨으면 아래 버튼을 눌러주세요. 축포가 터집니다 🎉</p>
+      <a class="ghost-btn block" id="gift-reopen" target="_blank" rel="noopener noreferrer">
+        상품 페이지 다시 열기 ↗</a>
+      <form id="gift-form" class="stack">
+        <fieldset class="radio-row">
+          <legend class="muted">이름을 어떻게 남길까요?</legend>
+          <label><input type="radio" name="display" value="name" checked> 실명/닉네임</label>
+          <label><input type="radio" name="display" value="anon"> 익명의 산타</label>
+        </fieldset>
+        <label class="field" id="gift-name-field">
+          <span>이름 또는 닉네임</span>
+          <input name="gifter_name" maxlength="40" placeholder="예) 민수, 대학동기 민수">
+        </label>
+        <label class="field">
+          <span>한마디 (선택)</span>
+          <input name="message" maxlength="200" placeholder="생일 축하해! 🎂">
+        </label>
+        <p class="form-error" id="gift-error" hidden></p>
+        <button class="primary-btn block big" type="submit">결제 완료했어요 🎉</button>
+        <button class="linkish" type="button" data-gift-cancel>아직 안 했어요, 취소할래요</button>
+      </form>
+    </section>
   </div>
 </div>
 

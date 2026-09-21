@@ -63,7 +63,8 @@ def _url(payload, key="url"):
     value = _text(payload, key, limit=1000)
     if value and not re.match(r"^https?://", value, re.I):
         raise ApiError(400, "링크는 http:// 또는 https:// 로 시작해야 해요.")
-    return value
+    # 검색하다 복사해 온 링크의 추적 쿼리를 털어낸다
+    return tracking.clean_url(value) if value else value
 
 
 def tier_for(total):
@@ -99,6 +100,7 @@ def item_public(row):
         "note": row["note"],
         "image_url": row["image_url"],
         "status": row["status"],
+        "trackable": tracking.is_affiliate_link(row["url"]),
         "verification": row["verification"],
         "verified": verified,
         "gifter_label": _gifter_label(row),
@@ -193,6 +195,16 @@ def update_wishlist(conn, slug, token, payload):
     )
     conn.commit()
     return get_wishlist(conn, slug, token)
+
+
+def inspect_link(payload):
+    """등록 폼에서 링크를 붙여넣었을 때 어떤 링크인지 즉시 알려준다."""
+    url = _text(payload, "url", limit=1000)
+    if not url:
+        return {"url": "", "kind": "empty", "trackable": False, "changed": False, "label": ""}
+    if not re.match(r"^https?://", url, re.I):
+        raise ApiError(400, "링크는 http:// 또는 https:// 로 시작해야 해요.")
+    return tracking.inspect(url)
 
 
 # --- 아이템 -----------------------------------------------------------------
