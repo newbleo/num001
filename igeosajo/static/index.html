@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>이거사죠 — 민망하지 않게 주고받는 위시리스트</title>
+<meta name="description" content="갖고 싶은 걸 링크 하나로. 소액부터 고액까지, 서로 민망하지 않게 주고받는 위시리스트.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎁</text></svg>">
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<canvas id="confetti" aria-hidden="true"></canvas>
+
+<header class="topbar">
+  <a class="brand" href="#/">🎁 이거사죠</a>
+  <nav><a class="ghost-btn" href="#/">내 위시리스트 만들기</a></nav>
+</header>
+
+<main id="app" aria-live="polite"></main>
+
+<footer class="footer">
+  <p>이거사죠 — 뭐 갖고 싶냐고 물어볼 때, 링크 하나만 딱.</p>
+</footer>
+
+<!-- 선물하기 모달 -->
+<div class="modal-backdrop" id="gift-modal" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="gift-modal-title">
+    <button class="modal-close" data-gift-cancel aria-label="닫기">✕</button>
+    <h2 id="gift-modal-title">선물 준비하기</h2>
+    <p class="modal-item" id="gift-modal-item"></p>
+    <ol class="steps">
+      <li>
+        <span class="step-no">1</span>
+        <div>
+          <strong>상품 페이지에서 결제해주세요</strong>
+          <p class="muted">30분 동안 다른 분이 같은 걸 사지 않도록 잠시 찜해둘게요.</p>
+          <a class="primary-btn" id="gift-modal-link" target="_blank" rel="noopener noreferrer">상품 보러가기 ↗</a>
+        </div>
+      </li>
+      <li>
+        <span class="step-no">2</span>
+        <div>
+          <strong>결제를 마치셨다면 알려주세요</strong>
+          <form id="gift-form" class="stack">
+            <fieldset class="radio-row">
+              <legend class="muted">이름을 어떻게 남길까요?</legend>
+              <label><input type="radio" name="display" value="name" checked> 실명/닉네임</label>
+              <label><input type="radio" name="display" value="anon"> 익명의 산타</label>
+            </fieldset>
+            <label class="field" id="gift-name-field">
+              <span>이름 또는 닉네임</span>
+              <input name="gifter_name" maxlength="40" placeholder="예) 민수, 대학동기 민수">
+            </label>
+            <label class="field">
+              <span>한마디 (선택)</span>
+              <input name="message" maxlength="200" placeholder="생일 축하해! 🎂">
+            </label>
+            <p class="form-error" id="gift-error" hidden></p>
+            <div class="row">
+              <button class="primary-btn" type="submit">결제 완료했어요 🎉</button>
+              <button class="ghost-btn" type="button" data-gift-cancel>취소</button>
+            </div>
+          </form>
+        </div>
+      </li>
+    </ol>
+  </div>
+</div>
+
+<!-- 감사 이모션 -->
+<div class="celebration" id="celebration" hidden>
+  <div class="celebration-card">
+    <div class="celebration-emoji">🎉</div>
+    <h2 id="celebration-title">너무 감사합니다!!</h2>
+    <p id="celebration-body"></p>
+    <button class="primary-btn" id="celebration-close">닫기</button>
+  </div>
+</div>
+
+<script src="/app.js"></script>
+</body>
+</html>
