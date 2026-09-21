@@ -59,3 +59,51 @@ class CliTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RouteOptionTest(unittest.TestCase):
+    def parse(self, argv):
+        return cli.build_parser().parse_args(argv)
+
+    def test_parse_route_separators(self):
+        for text in ("용산-서대전", "용산>서대전", "용산->서대전", "용산 → 서대전"):
+            self.assertEqual(
+                cli.parse_route(text), {"departure": "용산", "arrival": "서대전"}
+            )
+
+    def test_parse_route_rejects_garbage(self):
+        with self.assertRaises(cli.ConfigError):
+            cli.parse_route("용산서대전")
+
+    def test_multiple_routes_share_date_and_time(self):
+        args = self.parse(
+            [
+                "--provider", "korail",
+                "--route", "용산-서대전", "--route", "영등포-서대전",
+                "--date", "2026-09-23", "--time", "14:00", "--adults", "2",
+            ]
+        )
+        config = cli.apply_overrides(cli.from_dict({}), args)
+        self.assertEqual(len(config.routes), 2)
+        self.assertEqual(
+            [(r.departure, r.arrival) for r in config.routes],
+            [("용산", "서대전"), ("영등포", "서대전")],
+        )
+        for route in config.routes:
+            self.assertEqual(route.date, "20260923")
+            self.assertEqual(route.time, "140000")
+            self.assertEqual(route.adults, 2)
+
+    def test_cli_routes_override_config_file_trips(self):
+        base = cli.from_dict(
+            {
+                "provider": "fake",
+                "trip": {"date": "2026-09-23", "time": "14:00"},
+                "trips": [{"departure": "용산", "arrival": "서대전"}],
+            }
+        )
+        args = self.parse(["--route", "영등포-서대전"])
+        config = cli.apply_overrides(base, args)
+        self.assertEqual(len(config.routes), 1)
+        self.assertEqual(config.routes[0].departure, "영등포")
+        self.assertEqual(config.routes[0].time, "140000")  # 파일의 시각은 유지

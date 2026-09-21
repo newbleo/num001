@@ -133,22 +133,57 @@ class AppConfig:
     user_id: str = ""
     password: str = ""
     train_type: str = "all"          # 코레일 전용
-    search: SearchRequest = field(default_factory=lambda: SearchRequest("", "", ""))
+    routes: list[SearchRequest] = field(
+        default_factory=lambda: [SearchRequest("", "", "")]
+    )
     filters: FilterConfig = field(default_factory=FilterConfig)
     watch: WatchConfig = field(default_factory=WatchConfig)
     notify: NotifyConfig = field(default_factory=NotifyConfig)
 
+    @property
+    def search(self) -> SearchRequest:
+        """노선이 하나뿐인 경우를 위한 단축 접근자."""
+        return self.routes[0]
+
     def validate(self) -> None:
-        if not self.search.departure or not self.search.arrival:
-            raise ConfigError("출발역과 도착역을 지정해야 합니다")
-        if self.search.departure == self.search.arrival:
-            raise ConfigError("출발역과 도착역이 같습니다")
-        self.search.validate()
+        if not self.routes:
+            raise ConfigError("감시할 노선이 없습니다")
+        seen = set()
+        for route in self.routes:
+            if not route.departure or not route.arrival:
+                raise ConfigError("출발역과 도착역을 지정해야 합니다")
+            if route.departure == route.arrival:
+                raise ConfigError(f"출발역과 도착역이 같습니다: {route.departure}")
+            route.validate()
+            key = (route.departure, route.arrival, route.date, route.time)
+            if key in seen:
+                raise ConfigError(
+                    f"같은 노선이 중복되었습니다: {route.departure} → {route.arrival}"
+                )
+            seen.add(key)
         if self.provider != "fake" and not (self.user_id and self.password):
             raise ConfigError(
                 "로그인 정보가 없습니다. 환경변수(SRT_ID/SRT_PW 또는 KORAIL_ID/KORAIL_PW)를 "
                 "설정하거나 설정 파일의 credentials 를 채우세요."
             )
+
+
+def make_route(trip: dict, defaults: dict | None = None) -> SearchRequest:
+    """trip 한 건을 SearchRequest 로. 빠진 값은 defaults(공통 trip)에서 물려받는다."""
+
+    merged = {**(defaults or {}), **(trip or {})}
+    try:
+        return SearchRequest(
+            departure=str(merged.get("departure", "")).strip(),
+            arrival=str(merged.get("arrival", "")).strip(),
+            date=normalize_date(merged.get("date", date_cls.today())),
+            time=normalize_time(merged.get("time")),
+            adults=int(merged.get("adults", 1)),
+            children=int(merged.get("children", 0)),
+            seniors=int(merged.get("seniors", 0)),
+        )
+    except (TypeError, ValueError) as exc:
+        raise ConfigError(f"trip 설정이 잘못되었습니다: {exc}") from exc
 
 
 def _default_credentials(provider: str) -> tuple[str, str]:
@@ -168,19 +203,13 @@ def from_dict(raw: dict) -> AppConfig:
     user_id = str(creds.get("id") or "") or env_id
     password = str(creds.get("password") or "") or env_pw
 
-    trip = data.get("trip") or {}
-    try:
-        search = SearchRequest(
-            departure=str(trip.get("departure", "")).strip(),
-            arrival=str(trip.get("arrival", "")).strip(),
-            date=normalize_date(trip.get("date", date_cls.today())),
-            time=normalize_time(trip.get("time")),
-            adults=int(trip.get("adults", 1)),
-            children=int(trip.get("children", 0)),
-            seniors=int(trip.get("seniors", 0)),
-        )
-    except (TypeError, ValueError) as exc:
-        raise ConfigError(f"trip 설정이 잘못되었습니다: {exc}") from exc
+    defaults = data.get("trip") or {}
+    trips = data.get("trips")
+    if trips is None:
+        trips = [defaults]
+    elif not isinstance(trips, list) or not trips:
+        raise ConfigError("trips 는 비어 있지 않은 목록이어야 합니다")
+    routes = [make_route(trip, defaults) for trip in trips]
 
     f = data.get("filter") or {}
     filters = FilterConfig(
@@ -218,7 +247,7 @@ def from_dict(raw: dict) -> AppConfig:
         user_id=user_id,
         password=password,
         train_type=str(data.get("train_type", "all")).lower(),
-        search=search,
+        routes=routes,
         filters=filters,
         watch=watch,
         notify=notify,

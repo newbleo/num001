@@ -1,0 +1,46 @@
+# 9/23(수) 14:00 이후 서대전행 취소표 감시
+#   용산 → 서대전, 영등포 → 서대전 두 노선을 번갈아 조회한다.
+#
+#   export KORAIL_ID='...'   # 코레일 회원번호 / 이메일 / 휴대폰번호
+#   export KORAIL_PW='...'
+#   python -m trainwatch -c configs/seodaejeon-0923.yaml
+#
+#   처음에는 --dry-run 을 붙여 조회만 확인해 보세요.
+#   python -m trainwatch -c configs/seodaejeon-0923.yaml --dry-run
+
+provider: korail
+credentials:
+  id: ${KORAIL_ID}
+  password: ${KORAIL_PW}
+
+train_type: all        # KTX·ITX-새마을·무궁화 전부. KTX만 원하면 ktx
+
+# 두 노선의 공통 조건
+trip:
+  date: 2026-09-23     # 수요일
+  time: "14:00"        # 이 시각 이후 출발 열차만 조회
+  adults: 1
+
+trips:
+  - departure: 용산
+    arrival: 서대전
+  - departure: 영등포
+    arrival: 서대전
+
+filter:
+  seat: any            # 일반실/특실 가리지 않고 먼저 나오는 자리
+  allow_waiting: false # true 로 두면 자리가 없을 때 예약대기도 신청
+
+watch:
+  interval: 5          # 노선당 5초마다 조회 (두 노선이므로 실제 요청은 2.5초 간격)
+  jitter: 1.5
+  stop_after: 1        # 한 자리 잡으면 종료
+  duration_minutes: 0  # 0 = 무제한. 예: 180 이면 3시간만 감시
+  log_every: 20
+
+notify:
+  console: true
+  bell: true
+  telegram:
+    token: ${TG_TOKEN}
+    chat_id: ${TG_CHAT_ID}

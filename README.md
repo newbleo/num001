@@ -39,6 +39,35 @@ python -m trainwatch --provider fake --from 수서 --to 부산 --date 내일 --i
 
 실제 계정으로 조회만 해보고 예약은 하지 않으려면 `--dry-run` 을 붙입니다.
 
+## 노선 여러 개 동시에 감시
+
+`--route` 를 여러 번 주면 노선을 번갈아 조회합니다.
+
+```bash
+export KORAIL_ID='...'; export KORAIL_PW='...'
+python -m trainwatch --provider korail \
+    --route 용산-서대전 --route 영등포-서대전 \
+    --date 2026-09-23 --time 14:00 --interval 5
+```
+
+`--interval` 은 **노선 하나를 다시 보기까지의 간격**입니다. 노선이 2개면 요청은
+그 절반 간격으로 고르게 나눠 보내므로, 노선을 늘려도 한 노선의 감시 주기는 그대로입니다.
+먼저 자리가 나는 노선을 잡고, 그 노선으로 예약합니다.
+
+설정 파일로는 `trips:` 목록을 씁니다. 바로 쓸 수 있는 예시가
+[`configs/seodaejeon-0923.yaml`](configs/seodaejeon-0923.yaml) 에 있습니다.
+
+```yaml
+trip:                  # 모든 노선 공통 조건
+  date: 2026-09-23
+  time: "14:00"
+trips:
+  - departure: 용산
+    arrival: 서대전
+  - departure: 영등포
+    arrival: 서대전
+```
+
 ## 설정 파일
 
 반복해서 쓸 조건은 YAML로 두는 편이 편합니다.
@@ -55,14 +84,15 @@ python -m trainwatch -c config.yaml
 | 옵션 | 설명 |
 | --- | --- |
 | `--provider srt\|korail\|fake` | 예매 사업자 |
-| `--from` / `--to` | 출발역 / 도착역 |
+| `--from` / `--to` | 출발역 / 도착역 (단일 노선) |
+| `--route 용산-서대전` | 노선 추가. 여러 번 쓰면 여러 노선을 번갈아 감시 |
 | `--date` | `2026-01-01`, `20260101`, `오늘`, `내일` |
 | `--time` | 이 시각 이후 열차만 조회 |
 | `--seat 일반실\|특실\|any` | 원하는 좌석 등급 |
 | `--trains 301,305` | 특정 열차번호만 노림 |
 | `--after` / `--before` | 출발 시각 범위 제한 |
 | `--waiting` | 좌석이 없으면 예약대기라도 신청 |
-| `--interval` / `--jitter` | 조회 간격(초)과 무작위 편차 |
+| `--interval` / `--jitter` | 노선당 조회 간격(초)과 무작위 편차 |
 | `--duration` / `--max-attempts` | 몇 분 / 몇 회까지 감시할지 |
 | `--stop-after` | 예약 N건 성공 시 종료 (기본 1) |
 | `--dry-run` | 자리를 찾아도 예약하지 않고 알림만 |
@@ -74,9 +104,11 @@ python -m trainwatch -c config.yaml
 ## 동작 방식
 
 ```
-조회(search) → 조건에 맞는 편성 필터 → 빈자리 있으면 즉시 예약(reserve) → 알림
-   ↑                                                     └ 경합에 지면(SoldOut) 계속 감시
-   └ interval + jitter 만큼 대기, 오류가 나면 지수 백오프
+노선 1 조회 → 조건에 맞는 편성 필터 → 빈자리 있으면 즉시 예약(reserve) → 알림
+   ↓                                                   └ 경합에 지면(SoldOut) 계속 감시
+(interval/노선수 + jitter 만큼 대기, 오류가 나면 지수 백오프)
+   ↓
+노선 2 조회 → … → 다시 노선 1
 ```
 
 - **세션 만료 자동 복구**: 로그인 세션이 끊기면 재로그인 후 감시를 이어갑니다(3회 연속 실패 시 중단).

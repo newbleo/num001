@@ -18,6 +18,15 @@ MAX_BACKOFF = 60.0        # 연속 오류 시 대기 상한(초)
 MAX_AUTH_RETRIES = 3      # 연속 로그인 실패 허용 횟수
 
 
+def route_label(route) -> str:
+    """'용산 → 서대전 09/23 14:00' 형태의 표시용 문자열."""
+    date = route.date
+    return (
+        f"{route.departure} → {route.arrival} "
+        f"{date[4:6]}/{date[6:8]} {route.time[:2]}:{route.time[2:4]} 이후"
+    )
+
+
 @dataclass
 class WatchStats:
     searches: int = 0
@@ -76,8 +85,15 @@ class Watcher:
             self._sleep(seconds)
 
     def _next_interval(self) -> float:
-        jitter = self._jitter(0, self.config.watch.jitter) if self.config.watch.jitter else 0.0
-        return max(0.0, self.config.watch.interval + jitter)
+        """노선 하나를 처리한 뒤 쉬는 시간.
+
+        interval 은 '한 노선을 얼마 만에 다시 본다'는 뜻이므로,
+        노선이 N개면 각 조회 사이는 interval/N 만큼만 쉰다.
+        """
+        watch = self.config.watch
+        jitter = self._jitter(0, watch.jitter) if watch.jitter else 0.0
+        routes = max(1, len(self.config.routes))
+        return max(0.0, (watch.interval + jitter) / routes)
 
     def _should_continue(self, deadline: float | None) -> bool:
         if self._stopping:
@@ -107,7 +123,7 @@ class Watcher:
                 waiting.append(train)
         return available, waiting
 
-    def _attempt(self, train: Train, waiting: bool) -> Reservation | None:
+    def _attempt(self, train: Train, route, waiting: bool) -> Reservation | None:
         """예약 시도. 경합에서 지면 None."""
 
         seat = self.config.filters.seat
@@ -124,9 +140,7 @@ class Watcher:
 
         self.stats.reserve_attempts += 1
         try:
-            reservation = self.provider.reserve(
-                train, self.config.search, seat=seat, waiting=waiting
-            )
+            reservation = self.provider.reserve(train, route, seat=seat, waiting=waiting)
         except SoldOut as exc:
             self.stats.sold_out += 1
             log.info("놓쳤습니다 (%s): %s", train.describe(), exc)
@@ -148,11 +162,11 @@ class Watcher:
         self.notifier.send(message, important=True)
         log.info("%s", reservation.describe())
 
-    def _tick(self) -> None:
-        """한 번의 조회 + 필요한 경우 예약 시도."""
+    def _tick(self, route) -> None:
+        """노선 하나를 조회하고, 조건에 맞는 자리가 있으면 예약을 시도한다."""
 
         self.stats.searches += 1
-        trains = self.provider.search(self.config.search)
+        trains = self.provider.search(route)
         self._consecutive_errors = 0
         self._auth_failures = 0
 
@@ -160,20 +174,21 @@ class Watcher:
         if not available and not waiting:
             if self.stats.searches % max(1, self.config.watch.log_every) == 0:
                 log.info(
-                    "조회 %d회째 - 아직 빈자리 없음 (후보 %d편성)",
+                    "조회 %d회째 - 아직 빈자리 없음 [%s] (후보 %d편성)",
                     self.stats.searches,
+                    route_label(route),
                     len([t for t in trains if self.config.filters.matches(t)]),
                 )
             return
 
         for train in available:
-            reservation = self._attempt(train, waiting=False)
+            reservation = self._attempt(train, route, waiting=False)
             if reservation:
                 self._handle_success(reservation)
                 if self._reached_goal():
                     return
         for train in waiting:
-            reservation = self._attempt(train, waiting=True)
+            reservation = self._attempt(train, route, waiting=True)
             if reservation:
                 self._handle_success(reservation)
                 if self._reached_goal():
@@ -223,11 +238,11 @@ class Watcher:
             else None
         )
 
+        routes = "\n".join(f"  · {route_label(route)}" for route in config.routes)
         self.notifier.send(
-            f"🚄 감시 시작: [{config.provider}] {config.search.departure} → "
-            f"{config.search.arrival} {config.search.date} "
-            f"{config.search.time[:2]}:{config.search.time[2:4]} 이후 "
-            f"/ 좌석 {config.filters.seat.value} / {config.watch.interval}초 간격"
+            f"🚄 감시 시작 [{config.provider}] 노선 {len(config.routes)}개\n"
+            + routes
+            + f"\n  좌석 {config.filters.seat.value} / 노선당 {config.watch.interval}초 간격"
             + (" / 드라이런" if config.watch.dry_run else "")
         )
 
@@ -238,9 +253,12 @@ class Watcher:
             raise
 
         try:
+            cursor = 0
             while self._should_continue(deadline):
+                route = config.routes[cursor % len(config.routes)]
+                cursor += 1
                 try:
-                    self._tick()
+                    self._tick(route)
                     delay = self._next_interval()
                 except AuthError as exc:
                     delay = self._relogin(exc)

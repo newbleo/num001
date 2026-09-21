@@ -42,7 +42,7 @@ class ScriptedProvider(Provider):
         return step
 
     def reserve(self, train, request, seat=SeatClass.ANY, waiting=False):
-        self.reserve_calls.append((train, seat, waiting))
+        self.reserve_calls.append((train, request, seat, waiting))
         if self.reserve_results:
             result = self.reserve_results.pop(0)
             if isinstance(result, Exception):
@@ -172,7 +172,7 @@ class WatcherTest(unittest.TestCase):
         _, reservations, _, _ = run_watcher(provider, config)
         self.assertEqual(len(reservations), 1)
         self.assertTrue(reservations[0].waiting)
-        self.assertTrue(provider.reserve_calls[0][2])
+        self.assertTrue(provider.reserve_calls[0][3])
 
     def test_stop_after_two(self):
         provider = ScriptedProvider(
@@ -249,3 +249,60 @@ class WatcherTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class MultiRouteWatcherTest(unittest.TestCase):
+    def config(self, **watch):
+        data = {
+            "provider": "fake",
+            "trip": {"date": "2026-09-23", "time": "14:00"},
+            "trips": [
+                {"departure": "용산", "arrival": "서대전"},
+                {"departure": "영등포", "arrival": "서대전"},
+            ],
+            "watch": {"interval": 4, "jitter": 0, "log_every": 1000, **watch},
+        }
+        return from_dict(data)
+
+    def test_routes_are_polled_in_turn(self):
+        seen = []
+
+        class RouteRecordingProvider(ScriptedProvider):
+            def search(self, request):
+                seen.append(request.departure)
+                return super().search(request)
+
+        provider = RouteRecordingProvider([[train()]])
+        config = self.config(max_attempts=4)
+        _, reservations, clock, _ = run_watcher(provider, config)
+
+        self.assertEqual(seen, ["용산", "영등포", "용산", "영등포"])
+        self.assertEqual(reservations, [])
+        # 노선이 2개면 조회 간격은 interval/2 로 촘촘해진다 (노선당 주기는 그대로 4초)
+        self.assertEqual(clock.slept[:3], [2.0, 2.0, 2.0])
+
+    def test_reserve_uses_the_route_that_found_the_seat(self):
+        class SecondRouteOnly(ScriptedProvider):
+            def search(self, request):
+                self.searches += 1
+                if request.departure == "영등포":
+                    return [train(train_no="1503", general_seat=True)]
+                return [train()]
+
+        provider = SecondRouteOnly([[]])
+        _, reservations, _, _ = run_watcher(provider, self.config(max_attempts=4))
+
+        self.assertEqual(len(reservations), 1)
+        reserved_train, reserved_route, seat, _ = provider.reserve_calls[0]
+        self.assertEqual(reserved_train.train_no, "1503")
+        self.assertEqual(reserved_route.departure, "영등포")   # 자리를 찾은 노선으로 예약
+        self.assertEqual(reserved_route.date, "20260923")
+        self.assertEqual(seat, SeatClass.ANY)
+
+    def test_banner_lists_every_route(self):
+        provider = ScriptedProvider([[train()]])
+        _, _, _, notifier = run_watcher(provider, self.config(max_attempts=1))
+        text = notifier.text()
+        self.assertIn("용산 → 서대전", text)
+        self.assertIn("영등포 → 서대전", text)
+        self.assertIn("09/23 14:00", text)

@@ -14,6 +14,7 @@ credentials:
 # 코레일 전용: all | ktx | saemaeul | mugunghwa | itx
 train_type: all
 
+# trip: 모든 노선에 공통으로 적용되는 조건
 trip:
   departure: 수서
   arrival: 부산
@@ -22,6 +23,14 @@ trip:
   adults: 1
   children: 0
   seniors: 0
+
+# 노선을 여러 개 감시하려면 trips 를 쓰세요. trip 의 값을 물려받고,
+# 노선별로 필요한 항목만 덮어쓰면 됩니다. (trips 가 있으면 trip 의 역 이름은 무시)
+# trips:
+#   - departure: 용산
+#     arrival: 서대전
+#   - departure: 영등포
+#     arrival: 서대전
 
 filter:
   seat: any            # 일반실 | 특실 | any

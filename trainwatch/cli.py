@@ -8,7 +8,15 @@ import signal
 import sys
 
 from . import __version__, notify
-from .config import AppConfig, ConfigError, from_dict, load, normalize_date, normalize_time
+from .config import (
+    AppConfig,
+    ConfigError,
+    from_dict,
+    load,
+    make_route,
+    normalize_date,
+    normalize_time,
+)
 from .models import SeatClass
 from .providers import PROVIDERS, AuthError, ProviderError, build_provider
 from .watcher import Watcher
@@ -22,7 +30,9 @@ def build_parser() -> argparse.ArgumentParser:
         description="기차 취소표(빈자리)를 감시하다가 자리가 나면 바로 예약합니다.",
         epilog=(
             "예) python -m trainwatch --provider srt --from 수서 --to 부산 "
-            "--date 2026-01-01 --time 06:00 --seat 일반실 --interval 5"
+            "--date 2026-01-01 --time 06:00 --seat 일반실 --interval 5\n"
+            "    python -m trainwatch --provider korail --route 용산-서대전 "
+            "--route 영등포-서대전 --date 2026-09-23 --time 14:00"
         ),
     )
     parser.add_argument("--version", action="version", version=f"trainwatch {__version__}")
@@ -32,6 +42,13 @@ def build_parser() -> argparse.ArgumentParser:
     trip.add_argument("--provider", choices=PROVIDERS, help="예매 사업자 (기본: srt)")
     trip.add_argument("--from", dest="departure", help="출발역 (예: 수서)")
     trip.add_argument("--to", dest="arrival", help="도착역 (예: 부산)")
+    trip.add_argument(
+        "--route",
+        dest="routes",
+        action="append",
+        metavar="출발-도착",
+        help="여러 노선을 동시에 감시 (예: --route 용산-서대전 --route 영등포-서대전)",
+    )
     trip.add_argument("--date", help="출발일 (2026-01-01 / 20260101 / 내일)")
     trip.add_argument("--time", help="이 시각 이후 열차만 조회 (예: 06:00)")
     trip.add_argument("--adults", type=int, help="어른 인원 (기본 1)")
@@ -77,6 +94,23 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+ROUTE_SEPARATORS = ("->", "→", ">", "~", "-", ":")
+
+
+def parse_route(text: str) -> dict:
+    """'용산-서대전' / '용산>서대전' 을 {"departure": ..., "arrival": ...} 로."""
+
+    raw = text.strip()
+    for sep in ROUTE_SEPARATORS:
+        if sep in raw:
+            departure, _, arrival = raw.partition(sep)
+            departure, arrival = departure.strip(), arrival.strip()
+            if departure and arrival:
+                return {"departure": departure, "arrival": arrival}
+            break
+    raise ConfigError(f"노선 형식이 잘못되었습니다: {text!r} (예: 용산-서대전)")
+
+
 def setup_logging(args: argparse.Namespace) -> None:
     level = logging.DEBUG if args.debug else (logging.WARNING if args.quiet else logging.INFO)
     handlers: list[logging.Handler] = [logging.StreamHandler(sys.stderr)]
@@ -98,21 +132,35 @@ def apply_overrides(config: AppConfig, args: argparse.Namespace) -> AppConfig:
     if args.train_type:
         config.train_type = args.train_type
 
-    search = config.search
-    if args.departure:
-        search.departure = args.departure
-    if args.arrival:
-        search.arrival = args.arrival
-    if args.date:
-        search.date = normalize_date(args.date)
-    if args.time:
-        search.time = normalize_time(args.time)
-    if args.adults is not None:
-        search.adults = args.adults
-    if args.children is not None:
-        search.children = args.children
-    if args.seniors is not None:
-        search.seniors = args.seniors
+    if args.routes:
+        template = {
+            "date": config.search.date,
+            "time": config.search.time,
+            "adults": config.search.adults,
+            "children": config.search.children,
+            "seniors": config.search.seniors,
+        }
+        config.routes = [make_route(parse_route(r), template) for r in args.routes]
+
+    if args.departure or args.arrival:
+        first = config.routes[0]
+        if args.departure:
+            first.departure = args.departure
+        if args.arrival:
+            first.arrival = args.arrival
+
+    # 날짜/시각/인원은 모든 노선에 동일하게 적용한다.
+    for route in config.routes:
+        if args.date:
+            route.date = normalize_date(args.date)
+        if args.time:
+            route.time = normalize_time(args.time)
+        if args.adults is not None:
+            route.adults = args.adults
+        if args.children is not None:
+            route.children = args.children
+        if args.seniors is not None:
+            route.seniors = args.seniors
 
     filters = config.filters
     if args.seat:

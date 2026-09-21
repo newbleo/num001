@@ -147,3 +147,57 @@ class FromDictTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class MultiRouteTest(unittest.TestCase):
+    def test_trips_inherit_common_trip_defaults(self):
+        config = from_dict(
+            {
+                "provider": "fake",
+                "trip": {"date": "2026-09-23", "time": "14:00", "adults": 2},
+                "trips": [
+                    {"departure": "용산", "arrival": "서대전"},
+                    {"departure": "영등포", "arrival": "서대전", "time": "15:00"},
+                ],
+            }
+        )
+        config.validate()
+        self.assertEqual(len(config.routes), 2)
+        self.assertEqual(config.routes[0].departure, "용산")
+        self.assertEqual(config.routes[0].time, "140000")
+        self.assertEqual(config.routes[0].adults, 2)
+        self.assertEqual(config.routes[1].time, "150000")   # 노선별 재정의
+        self.assertEqual(config.routes[1].adults, 2)        # 공통값 상속
+        self.assertEqual(config.search, config.routes[0])   # 단축 접근자
+
+    def test_duplicate_route_rejected(self):
+        config = from_dict(
+            {
+                "provider": "fake",
+                "trip": {"date": "2026-09-23"},
+                "trips": [
+                    {"departure": "용산", "arrival": "서대전"},
+                    {"departure": "용산", "arrival": "서대전"},
+                ],
+            }
+        )
+        with self.assertRaises(ConfigError):
+            config.validate()
+
+    def test_empty_trips_rejected(self):
+        with self.assertRaises(ConfigError):
+            from_dict({"provider": "fake", "trips": []})
+
+    def test_each_route_is_validated(self):
+        config = from_dict(
+            {
+                "provider": "fake",
+                "trip": {"date": "2026-09-23"},
+                "trips": [
+                    {"departure": "용산", "arrival": "서대전"},
+                    {"departure": "영등포", "arrival": ""},
+                ],
+            }
+        )
+        with self.assertRaises(ConfigError):
+            config.validate()
