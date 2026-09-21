@@ -1,0 +1,49 @@
+# trainwatch 설정 예시
+#   cp config.example.yaml config.yaml 후 수정해서 쓰세요.
+#   python -m trainwatch -c config.yaml
+
+provider: srt          # srt | korail | fake(연습용)
+
+# 계정은 파일에 직접 적지 말고 환경변수로 두는 걸 권장합니다.
+#   export SRT_ID=...    export SRT_PW=...
+#   export KORAIL_ID=... export KORAIL_PW=...
+credentials:
+  id: ${SRT_ID}
+  password: ${SRT_PW}
+
+# 코레일 전용: all | ktx | saemaeul | mugunghwa | itx
+train_type: all
+
+trip:
+  departure: 수서
+  arrival: 부산
+  date: 내일           # 2026-01-01 / 20260101 / 오늘 / 내일
+  time: "06:00"        # 이 시각 이후 열차만 조회
+  adults: 1
+  children: 0
+  seniors: 0
+
+filter:
+  seat: any            # 일반실 | 특실 | any
+  train_numbers: []    # 예: ["301", "305"] - 비우면 전체
+  after: "06:00"       # 이 시각 이후 출발만
+  before: "12:00"      # 이 시각 이전 출발만
+  allow_waiting: false # 좌석이 없으면 예약대기라도 신청
+
+watch:
+  interval: 5          # 조회 간격(초). 최소 1.0, 너무 짧으면 차단됩니다
+  jitter: 1.5          # 간격에 더해지는 무작위 편차(초)
+  duration_minutes: 0  # 0 = 무제한
+  max_attempts: 0      # 0 = 무제한
+  stop_after: 1        # 예약 N건 잡으면 종료
+  dry_run: false       # true 면 자리를 찾아도 예약하지 않고 알림만
+  log_every: 20        # N회 조회마다 진행 로그
+
+notify:
+  console: true
+  bell: true           # 성공 시 터미널 벨(\a)
+  telegram:
+    token: ${TG_TOKEN}
+    chat_id: ${TG_CHAT_ID}
+  webhook:
+    url: ${WEBHOOK_URL} # 슬랙/디스코드 웹훅
