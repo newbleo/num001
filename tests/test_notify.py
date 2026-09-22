@@ -201,3 +201,35 @@ class DotenvTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AppPasswordTest(unittest.TestCase):
+    def test_gmail_style_spaces_are_removed(self):
+        self.assertEqual(
+            notify.normalize_app_password("ppnx bnuu szde vuvh"), "ppnxbnuuszdevuvh"
+        )
+
+    def test_already_joined_password_untouched(self):
+        self.assertEqual(
+            notify.normalize_app_password("ppnxbnuuszdevuvh"), "ppnxbnuuszdevuvh"
+        )
+
+    def test_ordinary_password_with_spaces_is_kept(self):
+        # 일반 비밀번호의 공백은 의미가 있을 수 있으므로 건드리지 않는다.
+        self.assertEqual(notify.normalize_app_password("my secret pw"), "my secret pw")
+        self.assertEqual(notify.normalize_app_password("cambodia 18@"), "cambodia 18@")
+
+    def test_surrounding_whitespace_trimmed(self):
+        self.assertEqual(notify.normalize_app_password("  swordfish \n"), "swordfish")
+
+    def test_notifier_logs_in_with_normalized_password(self):
+        FakeSMTP.instances = []
+        notify.EmailNotifier(
+            to="alstn950619@gmail.com",
+            password="ppnx bnuu szde vuvh",
+            smtp_factory=FakeSMTP,
+        ).send("알림", important=True)
+        self.assertEqual(
+            FakeSMTP.instances[0].logins,
+            [("alstn950619@gmail.com", "ppnxbnuuszdevuvh")],
+        )

@@ -4,12 +4,27 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import smtplib
 import sys
 from email.message import EmailMessage
 from urllib.parse import quote
 
 log = logging.getLogger(__name__)
+
+
+# Gmail 앱 비밀번호는 화면에 'ppnx bnuu szde vuvh' 처럼 네 글자씩 끊어 보여주지만
+# 실제로는 공백 없는 16자리다. 이 형태일 때만 공백을 지운다.
+_APP_PASSWORD = re.compile(r"^[a-z]{4}(?: [a-z]{4}){3}$", re.IGNORECASE)
+
+
+def normalize_app_password(password: str) -> str:
+    """앱 비밀번호를 화면에 보이는 대로 붙여넣어도 동작하게 다듬는다."""
+
+    text = (password or "").strip()
+    if _APP_PASSWORD.match(text):
+        return text.replace(" ", "")
+    return text
 
 
 class Notifier:
@@ -115,7 +130,7 @@ class EmailNotifier(Notifier):
         self.host = host
         self.port = port
         self.user = user or (self.to[0] if self.to else "")
-        self.password = password
+        self.password = normalize_app_password(password)
         self.sender = sender or self.user
         self.use_ssl = use_ssl
         self.timeout = timeout

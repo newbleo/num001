@@ -142,7 +142,11 @@ python -m trainwatch -c config.yaml
 
 Gmail은 **계정 비밀번호로는 SMTP 로그인이 안 됩니다.** 2단계 인증을 켠 뒤
 [앱 비밀번호](https://myaccount.google.com/apppasswords)에서 16자리를 발급받아
-`SMTP_PASSWORD` 에 넣으세요.
+`SMTP_PASSWORD` 에 넣으세요. 구글이 `abcd efgh ijkl mnop` 처럼 네 글자씩 끊어 보여주는데,
+공백을 포함해 그대로 붙여넣어도 알아서 처리합니다.
+
+> 메일 발송에는 SMTP 포트(465/587)가 열려 있어야 합니다. 방화벽으로 막힌 환경이라면
+> 텔레그램이나 웹훅(둘 다 HTTPS)을 쓰세요.
 
 ```bash
 python -m trainwatch -c configs/seodaejeon-0923.yaml --email alstn950619@gmail.com
